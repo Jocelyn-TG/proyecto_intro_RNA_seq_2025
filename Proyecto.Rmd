@@ -9,22 +9,67 @@ output: pdf_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
+## Librerias que se utilizan
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+```{r Librerias, message=FALSE, warning=FALSE}
+library("recount3") 
 ```
 
-## Including Plots
+## Datos utilizados
 
-You can also embed plots, for example:
+Abstract de los datos obtenidos:
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+Se recolectaron 30 muestras de 15 sujetos en dos momentos temporales (a nivel del llano y a gran altitud). La significancia se determinó comparando los perfiles de expresión a gran altitud con los del llano.
+
+Diseño general: 15 voluntarios viajaron desde un punto de partida a 1400 m hasta una zona a 5300 m en un período de 4 días.
+
+```{r Obtencion de datos, message=FALSE, warning=FALSE}
+## Todos los proyectos con datos de humano en recount3
+human_projects <- available_projects()
+
+## Obtencion de datos del proyecto SRP131480
+proj_info <- subset(
+    human_projects,
+    project == "SRP131480" & project_type == "data_sources"
+)
+
+rse_gene_SRP131480 <- create_rse(proj_info)
+```
+Una vez tenemos los datos, debemos explorarlos de manera general
+
+```{r Explorar datos, message=FALSE, warning=FALSE}
+# Explorar el objeto rse_SRP131480
+rse_gene_SRP131480
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+Como podemos observar este objeto contiene 30 muestras y 63856 genes.
+
+Con el proposito de facilitarnos la utilizacion de los datos, se modificara un 
+poco el objeto rse_gene_SRP131480
+
+```{r Modificacion de datos, message=FALSE, warning=FALSE}
+rse_gene_SRP131480 <- expand_sra_attributes(rse_gene_SRP131480)
+
+# Se verfica que todos los datos se vean bien
+colData(rse_gene_SRP131480)[
+    ,
+    grepl("^sra_attribute", colnames(colData(rse_gene_SRP131480)))
+]
+```
+
+Nuestros datos no muestran ningun problema aparente por lo que procederemos a 
+analizar un poco la diferencia entre nuestros datos de acuerdo a la fraccion
+del total de fragmentos asignados por 'featureCounts' que se unieron a un gen 
+en especifico
+
+```{r Analisis featureCounts, message=FALSE, warning=FALSE}
+rse_gene_SRP131480$assigned_gene_prop <- rse_gene_SRP131480$recount_qc.gene_fc_count_all.assigned / rse_gene_SRP131480$recount_qc.gene_fc_count_all.total
+summary(rse_gene_SRP131480$assigned_gene_prop)
+```
+
+Ahora procederemos a visualizar estos mismos resultados pero separando las muestras de mayor altitud a las que se encuentran en plano.
+
+```{r Analisis por grupo featureCounts, message=FALSE, warning=FALSE}
+with(colData(rse_gene_SRP131480), tapply(assigned_gene_prop, sra_attribute.altitude, summary))
+```
+
