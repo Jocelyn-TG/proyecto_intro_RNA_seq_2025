@@ -12,7 +12,12 @@ knitr::opts_chunk$set(echo = TRUE)
 ## Librerias que se utilizan
 
 ```{r Librerias, message=FALSE, warning=FALSE}
-library("recount3") 
+library("recount3") # BiocManager::install("recount3", update = FALSE)
+library("edgeR") # BiocManager::install("edgeR", update = FALSE)
+library("limma") # BiocManager::install("limma", update = FALSE)
+library("pheatmap") # BiocManager::install("pheatmap", update = FALSE)
+library("RColorBrewer") # install.packages("RColorBrewer")
+library("ggplot2") # install.packages("ggplot2")
 ```
 
 ## Datos utilizados
@@ -28,12 +33,14 @@ Diseño general: 15 voluntarios viajaron desde un punto de partida a 1400 m hast
 human_projects <- available_projects()
 
 ## Obtencion de datos del proyecto SRP131480
-proj_info <- subset(
-    human_projects,
-    project == "SRP131480" & project_type == "data_sources"
+rse_gene_SRP131480 <- create_rse(
+    subset(
+        human_projects,
+        project == "SRP131480" & project_type == "data_sources"
+    )
 )
 
-rse_gene_SRP131480 <- create_rse(proj_info)
+assay(rse_gene_SRP131480, "counts") <- compute_read_counts(rse_gene_SRP131480)
 ```
 Una vez tenemos los datos, debemos explorarlos de manera general
 
@@ -63,7 +70,9 @@ del total de fragmentos asignados por 'featureCounts' que se unieron a un gen
 en especifico
 
 ```{r Analisis featureCounts, message=FALSE, warning=FALSE}
-rse_gene_SRP131480$assigned_gene_prop <- rse_gene_SRP131480$recount_qc.gene_fc_count_all.assigned / rse_gene_SRP131480$recount_qc.gene_fc_count_all.total
+rse_gene_SRP131480$assigned_gene_prop <-
+    rse_gene_SRP131480$recount_qc.gene_fc_count_all.assigned / 
+    rse_gene_SRP131480$recount_qc.gene_fc_count_all.total
 summary(rse_gene_SRP131480$assigned_gene_prop)
 ```
 
@@ -73,3 +82,153 @@ Ahora procederemos a visualizar estos mismos resultados pero separando las muest
 with(colData(rse_gene_SRP131480), tapply(assigned_gene_prop, sra_attribute.altitude, summary))
 ```
 
+Como nos muestran los resultados, podemos observar que hay una pequeña disminucion entre los valores de las muestras de mayor altitud en comparacion con las de plano. Para poder observar mejor este punto:
+
+```{r Visualizacion por grupo featureCounts, message=FALSE, warning=FALSE}
+# Graficar
+ggplot(as.data.frame(colData(rse_gene_SRP131480)), aes(x = assigned_gene_prop,
+                                                       fill = sra_attribute.altitude)) +
+  geom_histogram(binwidth = 0.02, color = "black", alpha = 0.7, position = "dodge") +
+  theme_minimal()
+```
+
+Ahora procederemos a filtrar nuestros datos para poder realizar un analisis de expresion diferencial.
+
+```{r Filtrado de datos, message=FALSE, warning=FALSE}
+# Guardar los datos originales por si acaso
+rse_unfiltered <- rse_gene_SRP131480
+
+# Extraer la matriz de conteos
+counts_matrix <- assays(rse_gene_SRP131480)$counts  
+
+# Extraer la información de los grupos
+group <- as.factor(rse_gene_SRP131480$sra_attribute.altitude)  
+
+# Aplicar el filtro de expresión
+keep_genes <- filterByExpr(counts_matrix, group=group)
+
+# Filtrar con los genes seleccionados
+rse_gene_SRP131480 <- rse_gene_SRP131480[keep_genes, ]
+```
+
+```{r Dimension final de losdatos, message=FALSE, warning=FALSE}
+# Ver cuántos genes quedaron después del filtrado
+dim(rse_gene_SRP131480)
+```
+
+```{r Porcentaje filtrado, message=FALSE, warning=FALSE}
+## Porcentaje de genes que retuvimos
+round(nrow(rse_gene_SRP131480) / nrow(rse_unfiltered) * 100, 2)
+```
+
+Despues de aplicar el filtro de expresion, se redujo el numero de genes de 63856 a 14752, lo que es una disminucion de mas del 76%. El siguiente paso es aplicar
+la normalizacion de los datos.
+
+## Normalizacion de los datos
+
+```{r Normalizacion de los datos, message=FALSE, warning=FALSE}
+dge <- DGEList(
+    counts = assay(rse_gene_SRP131480, "counts"),
+    genes = rowData(rse_gene_SRP131480)
+)
+dge <- calcNormFactors(dge)
+```
+
+## Analisis de expresion diferencial
+
+Primero exploramos nuestros datos para revisar que no haya otros problemas con las muestras y para explorar la relación entre nuestras variables.
+
+```{r Analisis de expresion diferencial, message=FALSE, warning=FALSE}
+ggplot(as.data.frame(colData(rse_gene_SRP131480)), 
+       aes(x = sra_attribute.altitude, y = assigned_gene_prop, 
+           fill = sra_attribute.altitude)) +
+  geom_violin(trim = FALSE, alpha = 0.7) +  
+  geom_boxplot(width = 0.1, alpha = 0.5) +  
+  theme_bw(base_size = 20) +
+  theme_minimal() +
+  theme(legend.position = "none") 
+```
+
+Ahora probaremos con un modelo estadistico
+
+```{r Modelo estadistico, message=FALSE, warning=FALSE}
+# Crear el modelo
+mod <- model.matrix(~ sra_attribute.altitude + assigned_gene_prop, 
+                    data = colData(rse_gene_SRP131480))
+# Visualizar sus columnas
+colnames(mod)
+```
+
+Ya teniendo el modelo estadístico, usamos 'limma' para realizar el análisis de expresión diferencial
+
+```{r Limma, message=FALSE, warning=FALSE}
+vGene <- voom(dge, mod, plot = TRUE)
+```
+Ahora buscamos los genes diferencialmente expresados con un p_value < 0.05
+
+```{r Limma2, message=FALSE, warning=FALSE}
+eb_results <- eBayes(lmFit(vGene))
+
+de_results <- topTable(
+    eb_results,
+    coef = 2,
+    number = nrow(rse_gene_SRP131480),
+    sort.by = "none"
+)
+
+## Genes diferencialmente expresados entre gran altitud y plano con FDR < 5%
+table(de_results$adj.P.Val < 0.05)
+```
+De los 14752 genes que se analizaron, 4164 resultaron ser diferencialmente expresados con un p_value < 0.05. Para visualizar estos resultados:
+
+```{r Visualizacion de expresion, message=FALSE, warning=FALSE}
+plotMA(eb_results, coef = 2)
+```
+
+```{r Visualizacion de expresion2, message=FALSE, warning=FALSE}
+volcanoplot(eb_results, coef = 2, highlight = 3, names = de_results$gene_name)
+```
+
+```{r Ver genes del plot anterior, message=FALSE, warning=FALSE}
+# Ver los genes que se encuentran en la parte superior derecha del gráfico
+de_results[de_results$gene_name %in% c("BCAM", "UBB", "ABALON"), ]
+```
+
+## Visualizar los genes diferencialmente expresados
+
+De los datos normalizados por limma-voom, revisaremos aquellos top 50 genes diferencialmente expresados.
+
+```{r Visualizacion de genes, message=FALSE, warning=FALSE}
+## Extraer valores de los genes de interés
+exprs_heatmap <- vGene$E[rank(de_results$adj.P.Val) <= 50, ]
+
+## Crear una tabla con información de las muestras
+df <- as.data.frame(colData(rse_gene_SRP131480)[, "sra_attribute.altitude", drop = FALSE])
+colnames(df) <- "Altitude"
+
+## Crear el heatmap
+pheatmap(
+    exprs_heatmap,
+    cluster_rows = TRUE,
+    cluster_cols = TRUE,
+    show_rownames = FALSE,
+    show_colnames = FALSE,
+    annotation_col = df
+)
+```
+
+Como podemos observar se clusterizan casi perfectamente por altitud nuestras muestras, lo que nos indica que la altitud es un factor importante en la expresion de los genes. Otra forma para visualizarlo es:
+
+```{r Visualizacion de genes2, message=FALSE, warning=FALSE}
+# Convertir la columna Altitude a factor
+df$Altitude <- factor(df$Altitude)
+
+# Asignar colores basados en los niveles de Altitude
+col.group <- df$Altitude
+levels(col.group) <- brewer.pal(nlevels(col.group), "Set1")  
+
+col.group <- as.character(col.group) 
+
+# Realizar el MDS y graficar
+plotMDS(vGene$E, labels = df$Altitude, col = col.group, pch = 19, cex = 0.7)
+```
