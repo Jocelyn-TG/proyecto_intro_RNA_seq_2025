@@ -3,6 +3,7 @@ title: "Proyecto"
 author: "Jocelyn Trujillo Gutierrez"
 date: "2025-01-31"
 output: pdf_document
+bibliography: referencias.bib
 ---
 
 ```{r setup, include=FALSE}
@@ -26,7 +27,7 @@ Abstract de los datos obtenidos:
 
 Se recolectaron 30 muestras de 15 sujetos en dos momentos temporales (a nivel del llano y a gran altitud). La significancia se determinó comparando los perfiles de expresión a gran altitud con los del llano.
 
-Diseño general: 15 voluntarios viajaron desde un punto de partida a 1400 m hasta una zona a 5300 m en un período de 4 días.
+Diseño general: 15 voluntarios viajaron desde un punto de partida a 1400 m hasta una zona a 5300 m.
 
 ```{r Obtencion de datos, message=FALSE, warning=FALSE}
 ## Todos los proyectos con datos de humano en recount3
@@ -85,7 +86,6 @@ with(colData(rse_gene_SRP131480), tapply(assigned_gene_prop, sra_attribute.altit
 Como nos muestran los resultados, podemos observar que hay una pequeña disminucion entre los valores de las muestras de mayor altitud en comparacion con las de plano. Para poder observar mejor este punto:
 
 ```{r Visualizacion por grupo featureCounts, message=FALSE, warning=FALSE}
-# Graficar
 ggplot(as.data.frame(colData(rse_gene_SRP131480)), aes(x = assigned_gene_prop,
                                                        fill = sra_attribute.altitude)) +
   geom_histogram(binwidth = 0.02, color = "black", alpha = 0.7, position = "dodge") +
@@ -133,6 +133,7 @@ dge <- DGEList(
 )
 dge <- calcNormFactors(dge)
 ```
+Ya que nuestros datos estan normalizados podemos empezar el analisis.
 
 ## Analisis de expresion diferencial
 
@@ -155,8 +156,6 @@ Ahora probaremos con un modelo estadistico
 # Crear el modelo
 mod <- model.matrix(~ sra_attribute.altitude + assigned_gene_prop, 
                     data = colData(rse_gene_SRP131480))
-# Visualizar sus columnas
-colnames(mod)
 ```
 
 Ya teniendo el modelo estadístico, usamos 'limma' para realizar el análisis de expresión diferencial
@@ -176,7 +175,7 @@ de_results <- topTable(
     sort.by = "none"
 )
 
-## Genes diferencialmente expresados entre gran altitud y plano con FDR < 5%
+## Genes diferencialmente expresados entre gran altitud y plano con p_value < 5%
 table(de_results$adj.P.Val < 0.05)
 ```
 De los 14752 genes que se analizaron, 4164 resultaron ser diferencialmente expresados con un p_value < 0.05. Para visualizar estos resultados:
@@ -232,3 +231,39 @@ col.group <- as.character(col.group)
 # Realizar el MDS y graficar
 plotMDS(vGene$E, labels = df$Altitude, col = col.group, pch = 19, cex = 0.7)
 ```
+
+## Analisis de resultados y conclusiones
+
+Como bien es conocido, el cambio de ambiente en un organismo implica modificaciones 
+en su interacción con el entorno (@lobo_website_2008),  lo que se refleja en estos 
+resultados. La exposicion a una gran altitud indujo un cambio significativo 
+en los niveles de expresion genica de la sangre de los individuos analizados, 
+esto mostrado por los 4164 de 14752 genes (~28%) diferencialmente expresados (p < 0.05). 
+Además, la clara, aunque no perfecta, separación de las muestras según la altitud 
+sugiere que las condiciones hipóxicas influyen en la regulación génica.
+
+De entre los genes mas afectados se encuentran BCAM, UBB y ABALON, los cuales 
+tienen distintas funciones. BCAM codifica una proteina de la transmembranal 
+perteneciente a la superfamilia de las inmunoglobulinas, esta funciona como receptor 
+y también como molécula de adhesión, su dominio intracelular interactua con 
+proteinas como la hemoglobina, lo que sugiere una posible respuesta a la 
+disminución del oxígeno. UBB que codifica a la ubiquitina (proteina altamente 
+conservada), tiene un papel central sobre multiples vias celulares, siendo la 
+respuesta a estres una de ellas. Por su parte, ABALON (Apoptotic BCL2L1-Antisense 
+Long Non-Coding RNA) es el gen de un RNA no codificante, el cual se ha demostrado 
+que juega un papel en la apoptosis (@uniprot_website_nda; @uniprot_website_nd; 
+@genencbi_website_2024).
+
+En resumen, la exposicion a la gran altitud induce cambios significativos en la 
+expresion genica, lo cual se ve reflejado en la cantidad de genes diferencialmente 
+expresados y en la clusterizacion de las muestras por altitud. Ademas los genes 
+mas afectados tienen funciones importantes en distintos mecanismos y vias 
+celulares como respuesta al estrés y apoptosis, lo que sugiere que la hipoxia 
+induce una activación de vías de adaptación y supervivencia. 
+
+##  Referencias
+::: {#refs}
+:::
+
+
+
